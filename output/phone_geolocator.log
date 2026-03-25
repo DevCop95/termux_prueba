@@ -1,0 +1,24 @@
+2026-03-25 11:31:11,946 | INFO | __main__ | Logger initialized at output\phone_geolocator.log
+2026-03-25 11:31:32,687 | INFO | __main__ | Logger initialized at output\phone_geolocator.log
+2026-03-25 11:40:22,721 | INFO | __main__ | Logger initialized at output\phone_geolocator.log
+2026-03-25 11:40:25,355 | INFO | __main__ | Processing number +573015185270
+2026-03-25 11:44:25,681 | INFO | __main__ | Logger initialized at output\phone_geolocator.log
+2026-03-25 11:44:27,275 | INFO | __main__ | Processing number +573015185270
+2026-03-25 11:44:27,281 | ERROR | modules.geo | OpenCage geocoding failed
+Traceback (most recent call last):
+  File "C:\Users\POWER\Desktop\vscode\Osint_phone\modules\geo.py", line 125, in geocode_phone_metadata
+    with OpenCageGeocode(api_key, timeout=10) as geocoder:
+         ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^
+TypeError: OpenCageGeocode.__init__() got an unexpected keyword argument 'timeout'
+2026-03-25 11:49:23,436 | INFO | __main__ | Logger initialized at output\phone_geolocator.log
+2026-03-25 11:49:25,103 | INFO | __main__ | Processing number +573015185270
+2026-03-25 11:51:17,928 | INFO | __main__ | Logger initialized at output\phone_geolocator.log
+2026-03-25 11:51:19,643 | INFO | __main__ | Processing number +573015185270
+2026-03-25 11:53:22,333 | INFO | __main__ | Logger initialized at output\phone_geolocator.log
+2026-03-25 11:53:23,913 | INFO | __main__ | Processing number +573045679077
+2026-03-25 12:02:19,734 | INFO | __main__ | Logger initialized at output\phone_geolocator.log
+2026-03-25 12:02:21,865 | INFO | __main__ | Processing number +573045679077
+2026-03-25 12:06:02,547 | INFO | __main__ | Logger initialized at output\phone_geolocator.log
+2026-03-25 12:06:04,735 | INFO | __main__ | Processing number +573003958372
+2026-03-25 12:08:07,703 | INFO | __main__ | Logger initialized at output\phone_geolocator.log
+2026-03-25 12:08:09,651 | INFO | __main__ | Processing number +573164460704

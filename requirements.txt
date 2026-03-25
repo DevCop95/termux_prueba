@@ -1,7 +1,8 @@
 phonenumbers
-requests
-opencage
-googlesearch-python
+folium
 colorama
+opencage
+requests
 pycountry
-geopy
+tqdm
+googlesearch-python

@@ -1,86 +1,190 @@
-# modules/geo.py
+from __future__ import annotations
+
+import logging
+import time
+from typing import Any
+
 import requests
 from opencage.geocoder import OpenCageGeocode
-# Importamos la librería gratuita (Plan B)
-from geopy.geocoders import Nominatim
 
-def load_opencage_config(config: dict):
-    return config["opencage"]["api_key"]
 
-def geocode_location(location_text: str, opencage_key: str):
+LOGGER = logging.getLogger(__name__)
+
+
+def _best_result(results: list[dict[str, Any]]) -> dict[str, Any] | None:
     """
-    Estrategia de dos niveles:
-    1. Intenta OpenCage (Alta precisión, requiere API Key e Internet bueno).
-    2. Si falla, usa Nominatim (Gratis, sin clave, funciona con DNS lento).
+    Picks the result with the highest confidence score.
     """
-    
-    # --- PLAN A: OpenCage (El que tienes configurado en config.json) ---
-    if opencage_key and opencage_key != "TU_CLAVE_AQUI":
+    if not results:
+        return None
+
+    return max(
+        results,
+        key=lambda item: (
+            int(item.get("confidence", 0)),
+            len(str(item.get("formatted", ""))),
+        ),
+    )
+
+
+def _should_retry(exc: Exception) -> bool:
+    """
+    Decides whether the error is transient enough to retry.
+    """
+    if isinstance(exc, requests.exceptions.RequestException):
+        return True
+
+    name = exc.__class__.__name__.lower()
+    return any(token in name for token in ("rate", "timeout", "temporary", "quota", "network"))
+
+
+def _call_with_backoff(action, attempts: int = 3, base_delay: float = 1.0):
+    """
+    Executes a callable with exponential backoff.
+    """
+    last_error: Exception | None = None
+
+    for attempt in range(attempts):
         try:
-            # Timeout corto para no esperar mucho si falla
-            geocoder = OpenCageGeocode(opencage_key, timeout=5)
-            results = geocoder.geocode(location_text)
-            if results:
-                lat = results[0]["geometry"]["lat"]
-                lon = results[0]["geometry"]["lng"]
-                print(Fore.CYAN + "   [i] Geolocalización vía OpenCage (Precisa).")
-                return lat, lon
-        except Exception:
-            # Si falla (DNS, clave mala, timeout), pasamos al Plan B silenciosamente
-            pass
+            return action()
+        except Exception as exc:
+            last_error = exc
+            if attempt == attempts - 1 or not _should_retry(exc):
+                break
 
-    # --- PLAN B: Nominatim (El original, gratuito y a prueba de fallos) ---
-    try:
-        # User agent obligatorio para Nominatim
-        geolocator = Nominatim(user_agent="OsintPhoneTool/1.0", timeout=10)
-        location = geolocator.geocode(location_text)
-        if location:
-            print(Fore.YELLOW + "   [!] OpenCage falló. Usando Nominatim (Plan B gratuito).")
-            return location.latitude, location.longitude
-    except Exception as e:
-        print(Fore.RED + f"   [X] Fallo total de geolocalización: {e}")
-        pass
+            delay = base_delay * (2 ** attempt)
+            LOGGER.warning("Retrying OpenCage call after %s (%ss)", exc.__class__.__name__, delay)
+            time.sleep(delay)
 
-    # Si todo falla, devolvemos None para que el reporte lo entienda
-    return None, None
+    if last_error:
+        raise last_error
 
-def numverify_lookup(number_e164: str, config: dict):
-    api_key = config["numverify"].get("access_key") or config["numverify"].get("api_key")
-    
+    raise RuntimeError("OpenCage call failed without a concrete exception.")
+
+
+def _candidate_queries(phone_info: dict, lang: str) -> list[str]:
+    """
+    Builds geocoding queries from phone metadata.
+    """
+    candidates = [
+        phone_info.get("region"),
+        phone_info.get("description_es"),
+        phone_info.get("description_en"),
+        phone_info.get("country"),
+    ]
+
+    if lang.lower().startswith("en"):
+        candidates = [
+            phone_info.get("description_en"),
+            phone_info.get("description_es"),
+            phone_info.get("region"),
+            phone_info.get("country"),
+        ]
+
+    deduped: list[str] = []
+    for item in candidates:
+        if item and item not in deduped:
+            deduped.append(item)
+
+    return deduped
+
+
+def geocode_phone_metadata(phone_info: dict, api_key: str, lang: str = "es") -> dict:
+    """
+    Resolves approximate coordinates from phone metadata using OpenCage.
+    """
     if not api_key:
-        return {"error": "Falta la clave en config.json"}
+        return {
+            "lat": None,
+            "lon": None,
+            "address": phone_info.get("region") or phone_info.get("country"),
+            "confidence": 0,
+            "provider": "offline",
+            "note": "OpenCage API key no configurada. Usando solo metadata offline.",
+            "query": phone_info.get("region") or phone_info.get("country"),
+            "status": "offline_only",
+        }
 
-    url = "https://apilayer.net/api/validate"
-    number_clean = number_e164.replace("+", "")
-    
-    params = {
-        "access_key": api_key,
-        "number": number_clean,
-        "format": 1
-    }
+    queries = _candidate_queries(phone_info, lang)
+    if not queries:
+        return {
+            "lat": None,
+            "lon": None,
+            "address": None,
+            "confidence": 0,
+            "provider": "offline",
+            "note": "No hay suficientes metadatos geograficos para consultar OpenCage.",
+            "query": None,
+            "status": "offline_only",
+        }
+
+    best_match: dict[str, Any] | None = None
+    best_query: str | None = None
 
     try:
-        r = requests.get(url, params=params, timeout=10)
-        
-        if r.status_code != 200:
-            return {"error": f"Error HTTP {r.status_code}"}
-            
-        data = r.json()
-        
-        if "error" in data:
-             return {"error": data["error"].get("info", "Error desconocido de API")}
+        geocoder = OpenCageGeocode(api_key)
 
-        if not data.get("valid"):
-             return {"error": "Número inválido según API"}
-             
-        return data
-        
-    except requests.exceptions.ConnectionError:
-        return {"error": "Sin conexión a internet (DNS/Red fallido)"}
-    except requests.exceptions.Timeout:
-        return {"error": "Tiempo de espera agotado"}
-    except Exception as e:
-        return {"error": str(e)}
+        for query in queries:
+            results = _call_with_backoff(
+                lambda current_query=query: geocoder.geocode(
+                    current_query,
+                    language=lang,
+                    no_annotations=1,
+                    limit=5,
+                )
+            )
+            candidate = _best_result(results or [])
+            if candidate and (
+                best_match is None
+                or int(candidate.get("confidence", 0)) > int(best_match.get("confidence", 0))
+            ):
+                best_match = candidate
+                best_query = query
 
-# Necesario para los colores dentro de este archivo
-from colorama import Fore
+        if not best_match:
+            return {
+                "lat": None,
+                "lon": None,
+                "address": phone_info.get("region") or phone_info.get("country"),
+                "confidence": 0,
+                "provider": "OpenCage",
+                "note": "OpenCage no encontro resultados suficientes para estos metadatos.",
+                "query": queries[0],
+                "status": "no_results",
+            }
+
+        lat = best_match["geometry"]["lat"]
+        lon = best_match["geometry"]["lng"]
+        reverse_results = _call_with_backoff(
+            lambda: geocoder.reverse_geocode(lat, lon, language=lang, no_annotations=1)
+        )
+        reverse_match = _best_result(reverse_results or [])
+        address = None
+        if reverse_match:
+            address = reverse_match.get("formatted")
+        if not address:
+            address = best_match.get("formatted")
+
+        return {
+            "lat": lat,
+            "lon": lon,
+            "address": address,
+            "confidence": int(best_match.get("confidence", 0)),
+            "provider": "OpenCage",
+            "note": "Ubicacion aproximada obtenida por geocodificacion de metadatos telefonicos.",
+            "query": best_query,
+            "status": "ok",
+        }
+
+    except Exception as exc:
+        LOGGER.exception("OpenCage geocoding failed")
+        return {
+            "lat": None,
+            "lon": None,
+            "address": phone_info.get("region") or phone_info.get("country"),
+            "confidence": 0,
+            "provider": "offline",
+            "note": f"No fue posible consultar OpenCage ({exc.__class__.__name__}). Se conservaron solo datos offline.",
+            "query": queries[0],
+            "status": "offline_only",
+        }
