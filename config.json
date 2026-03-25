@@ -1,0 +1,10 @@
+{
+  "numverify": {
+    "api_key": "498ec685fd3b2fed94d260f71f4d2ee5",
+    "base_url": "https://api.apilayer.com/number_verification/validate"
+  },
+  "opencage": {
+    "api_key": "216c95e7592643a9a81acb4be648abfa",
+    "geocode_url": "https://api.opencagedata.com/geocode/v1/json"
+  }
+}

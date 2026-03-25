@@ -1,0 +1,7 @@
+phonenumbers
+requests
+opencage
+googlesearch-python
+colorama
+pycountry
+geopy
